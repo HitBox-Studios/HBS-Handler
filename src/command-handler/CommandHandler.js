@@ -6,7 +6,9 @@ const SlashCommands = require('./SlashCommands')
 
 class CommandHandler {
   // <commandName, instance of the Command class>
-  commands = new Map()
+  _commands = new Map()
+  _validations = this.getValidations('run-time')
+  _prefix = '!'
 
   constructor(instance, commandsDir, client) {
     this._instance = instance
@@ -15,6 +17,7 @@ class CommandHandler {
 
     this.readFiles()
     this.messageListener(client)
+    this.interactionListener(client)
   }
 
   readFiles() {
@@ -30,17 +33,37 @@ class CommandHandler {
 
       const command = new Command(this._instance, commandName, commandObject)
 
+      const {
+        description,
+        options = [],
+        type,
+        betaOnly,
+        delete: del,
+      } = commandObject
+
+      if (del) {
+        if (type === 'SLASH' || type === 'BOTH') {
+          if (betaOnly) {
+            for (const guildId of this._instance.betaServers) {
+              this._slashCommands.delete(command.commandName, guildId)
+            }
+          } else {
+            this._slashCommands.delete(command.commandName)
+          }
+        }
+
+        continue
+      }
+
       for (const validation of validations) {
         validation(command)
       }
 
-      const { description, options = [], type, testOnly } = commandObject
-
-      this.commands.set(command.commandName, command)
+      this._commands.set(command.commandName, command)
 
       if (type === 'SLASH' || type === 'BOTH') {
-        if (testOnly) {
-          for (const guildId of this._instance.testServers) {
+        if (betaOnly) {
+          for (const guildId of this._instance.betaServers) {
             this._slashCommands.create(
               command.commandName,
               description,
@@ -55,46 +78,73 @@ class CommandHandler {
     }
   }
 
+  async runCommand(commandName, args, message, interaction) {
+    const command = this._commands.get(commandName)
+    if (!command) {
+      return
+    }
+
+    const { callback, type } = command.commandObject
+
+    if (message && type === 'SLASH') {
+      return
+    }
+
+    const usage = {
+      message,
+      interaction,
+      args,
+      text: args.join(' '),
+      guild: message ? message.guild : interaction.guild,
+    }
+
+    for (const validation of this._validations) {
+      if (!validation(command, usage, this._prefix)) {
+        return
+      }
+    }
+
+    return await callback(usage)
+  }
+
   messageListener(client) {
-    const validations = this.getValidations('run-time')
-
-    const prefix = '!'
-
-    client.on('messageCreate', (message) => {
+    client.on('messageCreate', async (message) => {
       const { content } = message
 
-      if (!content.startsWith(prefix)) {
+      if (!content.startsWith(this._prefix)) {
         return
       }
 
       const args = content.split(/\s+/)
-      const commandName = args.shift().substring(prefix.length).toLowerCase()
+      const commandName = args
+        .shift()
+        .substring(this._prefix.length)
+        .toLowerCase()
 
-      const command = this.commands.get(commandName)
-      if (!command) {
+      const response = await this.runCommand(commandName, args, message)
+      if (response) {
+        message.reply(response).catch(() => {})
+      }
+    })
+  }
+
+  interactionListener(client) {
+    client.on('interactionCreate', async (interaction) => {
+      if (!interaction.isCommand()) {
         return
       }
 
-      const { callback, type } = command.commandObject
+      const args = ['5', '10']
 
-      if (message && type === 'SLASH') {
-        return
-      }
-
-      const usage = {
-        message,
+      const response = await this.runCommand(
+        interaction.commandName,
         args,
-        text: args.join(' '),
-        guild: message.guild,
+        null,
+        interaction
+      )
+      if (response) {
+        interaction.reply(response).catch(() => {})
       }
-
-      for (const validation of validations) {
-        if (!validation(command, usage, prefix)) {
-          return
-        }
-      }
-
-      callback(usage)
     })
   }
 
