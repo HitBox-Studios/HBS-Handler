@@ -2,6 +2,7 @@ const path = require('path')
 
 const getAllFiles = require('../util/get-all-files')
 const Command = require('./Command')
+const SlashCommands = require('./SlashCommands')
 
 class CommandHandler {
   // <commandName, instance of the Command class>
@@ -10,6 +11,8 @@ class CommandHandler {
   constructor(instance, commandsDir, client) {
     this._instance = instance
     this._commandsDir = commandsDir
+    this._slashCommands = new SlashCommands(client)
+
     this.readFiles()
     this.messageListener(client)
   }
@@ -31,7 +34,24 @@ class CommandHandler {
         validation(command)
       }
 
+      const { description, options = [], type, testOnly } = commandObject
+
       this.commands.set(command.commandName, command)
+
+      if (type === 'SLASH' || type === 'BOTH') {
+        if (testOnly) {
+          for (const guildId of this._instance.testServers) {
+            this._slashCommands.create(
+              command.commandName,
+              description,
+              options,
+              guildId
+            )
+          }
+        } else {
+          this._slashCommands.create(command.commandName, description, options)
+        }
+      }
     }
   }
 
@@ -55,7 +75,18 @@ class CommandHandler {
         return
       }
 
-      const usage = { message, args, text: args.join(' '), guild: message.guild }
+      const { callback, type } = command.commandObject
+
+      if (message && type === 'SLASH') {
+        return
+      }
+
+      const usage = {
+        message,
+        args,
+        text: args.join(' '),
+        guild: message.guild,
+      }
 
       for (const validation of validations) {
         if (!validation(command, usage, prefix)) {
@@ -63,7 +94,6 @@ class CommandHandler {
         }
       }
 
-      const { callback } = command.commandObject
       callback(usage)
     })
   }
