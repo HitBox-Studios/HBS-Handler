@@ -1,20 +1,21 @@
 class Command {
-  constructor(commandName, commandObject) {
-    this._commandName = commandName.toLowerCase()
-    this._commandObject = commandObject
-
-    this.verifySyntax()
+  constructor(instance, commandName, commandObject) {
+    this._instance = instance;
+    this._commandName = commandName.toLowerCase();
+    this._commandObject = commandObject;
   }
 
-  verifySyntax() {}
+  get instance() {
+    return this._instance;
+  }
 
   get commandName() {
-    return this._commandName
+    return this._commandName;
   }
 
   get commandObject() {
-    return this._commandObject
+    return this._commandObject;
   }
 }
 
-module.exports = Command
+module.exports = Command;
